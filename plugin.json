@@ -2,7 +2,7 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "respire-antigravity",
   "displayName": "Respire",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Recall and save Respire memories from Antigravity through the local Respire Runtime.",
   "author": "risense-ai",
   "repository": "https://github.com/risense-ai/respire-antigravity",

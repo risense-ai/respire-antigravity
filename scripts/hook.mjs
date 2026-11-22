@@ -8,6 +8,12 @@ import { entry, requireOk, save, secret } from './memory.mjs';
 import { Runtime } from './runtime.mjs';
 
 const prefix = /^(?:记|存|记录|记住|remember)\s*[:：]\s*/i;
+const recallTimeoutStages = new Map([
+  ['health', '连接 Runtime'],
+  ['status', '检查记忆库状态'],
+  ['recall', '检索记忆'],
+  ['show', '读取记忆正文'],
+]);
 const receipt = text => ({
   terminationBehavior: 'terminate',
   injectSteps: [systemStep('Respire · ' + text)],
@@ -108,7 +114,8 @@ async function handle(event) {
   } catch (error) {
     console.error('Respire hook:', error.name, error.message);
     if (isSave) return receipt('未能确认保存结果，请检查 Runtime 和钩子日志。');
-    return recallActivity(context, '召回失败', [], '', input);
+    const stage = recallTimeoutStages.get(error.runtimeStage);
+    return recallActivity(context, stage ? '召回超时（' + stage + '）' : '召回失败', [], '', input);
   }
 }
 

@@ -8,17 +8,27 @@ export class Runtime {
   }
 
   async json(path, request, timeout) {
-    const response = await fetch(this.base + path, {
-      redirect: 'error',
-      signal: AbortSignal.timeout(timeout),
-      ...(request && {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request),
-      }),
-    });
-    if (!response.ok) throw new Error('Runtime HTTP ' + response.status);
-    return response.json();
+    const signal = AbortSignal.timeout(timeout);
+    try {
+      const response = await fetch(this.base + path, {
+        redirect: 'error',
+        signal,
+        ...(request && {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request),
+        }),
+      });
+      if (!response.ok) throw new Error('Runtime HTTP ' + response.status);
+      return await response.json();
+    } catch (error) {
+      if (!signal.aborted) throw error;
+      const stage = request?.method === 'cli.exec' ? request.args[1] : request?.method ?? 'health';
+      const failure = new Error('Runtime ' + stage + ' timed out after ' + timeout + ' ms', { cause: error });
+      failure.name = 'TimeoutError';
+      failure.runtimeStage = stage;
+      throw failure;
+    }
   }
 
   async bind() {
@@ -59,7 +69,8 @@ export class Runtime {
     return doc;
   }
 
-  async call(command, args = [], timeout = 5000) {
+  // Semantic lookup has exceeded five seconds on the local Runtime. Health and show remain lightweight.
+  async call(command, args = [], timeout = command === 'recall' ? 20000 : 5000) {
     return this.envelope(await this.request('cli.exec', ['--json', command, ...args], timeout), command);
   }
 
