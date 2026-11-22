@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release source
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          node --input-type=module - <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('plugin.json'));
+          assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+          assert.equal(process.env.GITHUB_REF_NAME, 'v' + manifest.version);
+          const hooks = JSON.parse(readFileSync('hooks.json'));
+          assert.ok(hooks['respire-memory'].PreInvocation.length);
+          assert.ok(hooks['respire-memory'].PostInvocation.length);
+          assert.ok(hooks['respire-memory'].Stop.length);
+          JS
+          for script in scripts/*.mjs; do node --check "$script"; done
+      - name: Package release
+        run: |
+          artifact="respire-antigravity-${GITHUB_REF_NAME}.zip"
+          git archive --format=zip --prefix=respire-antigravity/ --output="$artifact" HEAD LICENSE README.md plugin.json hooks.json scripts
+          sha256sum "$artifact" > SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "respire-antigravity-${GITHUB_REF_NAME}.zip" SHA256SUMS --verify-tag --generate-notes

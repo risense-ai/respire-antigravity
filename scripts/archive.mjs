@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { connectCodex } from './codex.mjs';
+import { statusCommand } from './activity.mjs';
 import { entry, requireOk, save, secret } from './memory.mjs';
 import { Runtime } from './runtime.mjs';
 
@@ -15,7 +16,8 @@ export async function queueArchive(event) {
   const query = event.lastUserInput?.trim();
   // The live host uses NO_TOOL_CALL for a completed response. The public contract calls it model_stop.
   if (!codexPath || event.fullyIdle !== true || !['NO_TOOL_CALL', 'model_stop'].includes(event.terminationReason) ||
-      event.continuationActive || !query || /^(?:记|存|记录|记住|remember)\s*[:：]|^(?:\/nomem|#nomem)(?:\s|$)/i.test(query)) return;
+      event.continuationActive || !query || query.toLowerCase() === statusCommand ||
+      /^(?:记|存|记录|记住|remember)\s*[:：]|^(?:\/nomem|#nomem)(?:\s|$)/i.test(query)) return;
   if (!isAbsolute(codexPath)) throw new Error('RESPIRE_CODEX_PATH must be an absolute executable path');
 
   if (typeof event.conversationId !== 'string' || typeof event.transcriptPath !== 'string') {
@@ -209,6 +211,12 @@ async function review(job, runtime, saved) {
     threadId = thread.id;
     await client.request('turn/start', {
       threadId, input: [{ type: 'text', text: JSON.stringify({ user: job.input, steps: job.evidence }), text_elements: [] }],
+      outputSchema: {
+        type: 'object',
+        properties: { disposition: { type: 'string', enum: ['stored', 'nothing-to-store', 'pending'] } },
+        required: ['disposition'],
+        additionalProperties: false,
+      },
     });
     const result = await Promise.race([completed, client.exited.then(() => { throw new Error('Codex worker closed'); })]);
     if (result !== 'completed') throw new Error('Codex turn did not complete');
@@ -216,7 +224,8 @@ async function review(job, runtime, saved) {
     if (uncertain) return 'unconfirmed';
     if (pending) return 'pending';
     if (saved.length) return 'stored';
-    const disposition = JSON.parse(final).disposition;
+    // The configured provider can render the schema result as a Markdown JSON block.
+    const disposition = final?.match(/(?:^|\n)\s*(?:```json\s*)?\{\s*"disposition"\s*:\s*"([^"]+)"\s*\}\s*(?:```\s*)?$/u)?.[1];
     if (!['nothing-to-store', 'pending'].includes(disposition)) throw new Error('Codex archive outcome was not verified');
     return disposition;
   } finally {

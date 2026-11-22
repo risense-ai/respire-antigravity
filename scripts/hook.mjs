@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { activityContext, completeUsage, recallActivity, statusCommand, statusReceipt, systemStep } from './activity.mjs';
 import { queueArchive } from './archive.mjs';
 import { entry, requireOk, save, secret } from './memory.mjs';
 import { Runtime } from './runtime.mjs';
@@ -9,22 +10,33 @@ import { Runtime } from './runtime.mjs';
 const prefix = /^(?:记|存|记录|记住|remember)\s*[:：]\s*/i;
 const receipt = text => ({
   terminationBehavior: 'terminate',
-  injectSteps: [{ systemMessage: { systemMessage: 'Respire · ' + text } }],
+  injectSteps: [systemStep('Respire · ' + text)],
 });
 
-async function recall(runtime, query) {
+async function recall(runtime, query, context) {
   const status = requireOk(await runtime.call('status'));
-  if (status.summary?.workspace === 'off') return {};
+  if (status.summary?.workspace === 'off') return recallActivity(context, '记忆已关闭', [], '', query);
   const doc = await runtime.call('recall', ['--limit', '5', '--titles', '--', query]);
-  if (doc.status === 'skip') return {};
+  if (doc.status === 'skip') return recallActivity(context, '无命中', [], '', query);
   const hits = requireOk(doc).details;
   if (!Array.isArray(hits)) throw new Error('Invalid recall response');
   const ids = [...new Set(hits.map(hit => hit.superseded_by || hit.id))];
   const items = await Promise.all(ids.map(id => entry(runtime, id)));
-  const sections = items.filter(item => !item.superseded_by && !secret.test(item.title) && !secret.test(item.content))
-    .map(item => '[' + item.id.slice(0, 8) + '] ' + item.title + '\n' + item.content);
-  if (!sections.length) return {};
-  return { injectSteps: [{ ephemeralMessage: 'Respire recalled reference material.\n\n' + sections.join('\n\n').slice(0, 6000) }] };
+  const active = items.filter(item => !item.superseded_by && !secret.test(item.title) && !secret.test(item.content));
+  const injected = [];
+  let reference = '';
+  for (const item of active) {
+    const short = item.id.slice(0, 8);
+    const id = active.filter(other => other.id.startsWith(short)).length > 1 ? item.id : short;
+    const section = '[' + id + '] ' + item.title + '\n' + item.content;
+    const remaining = 6000 - reference.length;
+    if (remaining <= id.length + item.title.length + 5) break;
+    reference += (section + '\n\n').slice(0, remaining);
+    injected.push({ id, title: item.title });
+  }
+  const outcome = injected.length ? '已召回' : hits.length ? '无可注入正文' : '无命中';
+  return recallActivity(context, outcome, injected,
+    reference && 'Respire recalled reference material.\n\n' + reference, query);
 }
 
 async function userStep(event, query) {
@@ -75,8 +87,16 @@ async function handle(event) {
   if (event.invocationNum !== 0 || typeof event.lastUserInput !== 'string') return {};
   const input = event.lastUserInput.trim();
   const isSave = prefix.test(input);
-  if (!input || /^(?:\/nomem|#nomem)(?:\s|$)/i.test(input)) return {};
-  if (secret.test(input)) return isSave ? receipt('未写入，文本疑似含凭据。') : {};
+  if (!input) return {};
+  if (secret.test(input) && isSave) return receipt('未写入，文本疑似含凭据。');
+  const context = isSave ? null : await activityContext(event);
+  if (input.toLowerCase() === statusCommand) return {
+    terminationBehavior: 'terminate',
+    injectSteps: [systemStep(statusReceipt(context))],
+  };
+  if (!isSave && (/^(?:\/nomem|#nomem)(?:\s|$)/i.test(input) || secret.test(input))) {
+    return recallActivity(context, '已跳过', [], '', input);
+  }
   try {
     const runtime = new Runtime();
     await runtime.bind();
@@ -84,11 +104,11 @@ async function handle(event) {
       const turn = await userStep(event, input);
       return receipt(await saveOnce(runtime, turn, input.replace(prefix, '')));
     }
-    return await recall(runtime, input);
+    return await recall(runtime, input, context);
   } catch (error) {
     console.error('Respire hook:', error.name, error.message);
     if (isSave) return receipt('未能确认保存结果，请检查 Runtime 和钩子日志。');
-    throw error;
+    return recallActivity(context, '召回失败', [], '', input);
   }
 }
 
@@ -100,6 +120,8 @@ if (process.argv[2] === 'session-start') {
   await new Runtime().bind();
 } else if (process.argv[2] === 'stop') {
   await queueArchive(event);
+} else if (process.argv[2] === 'post') {
+  response = await completeUsage(event);
 } else {
   response = await handle(event);
 }

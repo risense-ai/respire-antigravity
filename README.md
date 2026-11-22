@@ -22,6 +22,12 @@ For a workspace-only install, put the plugin directory in `.agents/plugins/respi
 
 The plugin stores operation claims and receipts under `~/.gemini/config/respire-antigravity/operations` to prevent a replay from writing again. The initial release targets Antigravity on Windows. Other host surfaces require separate acceptance.
 
+## Memory activity
+
+Expand the **Hook Json PreInvocation** activity card for the recall result and the most recent save receipt in the same conversation. A **Hook Json PostInvocation** card shows the assistant's usage report when the report names only memory bodies supplied to that turn. This confirms the reported IDs, while the assistant determines which evidence influenced its answer.
+
+Enter `/respire-status` on its own to display the last recall, usage report, and save status for the current conversation. Background review can still be running when the foreground answer ends. The status command reads its current receipt without starting another review.
+
 ## Background memory review
 
 To enable background review, set `RESPIRE_CODEX_PATH` to the absolute path of a compatible Codex executable and restart Antigravity. Use a Codex installation that can run `app-server` with your existing account and configuration. When enabled, the completed turn's user text and available response evidence are sent to the provider configured in Codex for review. Leave the variable unset to keep background review off.
