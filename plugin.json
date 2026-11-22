@@ -1,0 +1,10 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "respire-antigravity",
+  "displayName": "Respire",
+  "version": "0.1.0",
+  "description": "Recall and save Respire memories from Antigravity through the local Respire Runtime.",
+  "author": "risense-ai",
+  "repository": "https://github.com/risense-ai/respire-antigravity",
+  "license": "MIT"
+}
